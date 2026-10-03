@@ -6,11 +6,15 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "mcp>=1.0.0",
     "openai>=1.30.0",
+    "python-dotenv>=1.0.0",
     "openfisca-japan-mcp==0.2.4",
 ]
 
 [project.scripts]
 openfisca-bench = "bench:main"
+
+[tool.uv.sources]
+openfisca-japan-mcp = { path = "vendor/OpenFisca-Japan-MCP", editable = true }
 
 [build-system]
 requires = ["hatchling"]

@@ -825,16 +825,20 @@ wheels = [
 [[package]]
 name = "openfisca-japan-mcp"
 version = "0.2.4"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "vendor/OpenFisca-Japan-MCP" }
 dependencies = [
     { name = "fastmcp" },
     { name = "numpy" },
     { name = "openfisca-core" },
     { name = "openfisca-japan" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2e/ff/299810046339341b31fd7a4d43060ea9ae3db70307142a61619904efa98d/openfisca_japan_mcp-0.2.4.tar.gz", hash = "sha256:64ae4e93b71b0603f5ead649d090162d42ef2fb86e0d867574dff6e919673d08", size = 53392, upload-time = "2026-04-16T12:53:05.662Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/47/21/4ce9879570acd9b511c88fd7248f492df044d8ee78c02b4c5432a2ae8392/openfisca_japan_mcp-0.2.4-py3-none-any.whl", hash = "sha256:d492f92c46badd17c170192db9b88ec939533d0ace2da0682235f7398de099bd", size = 15147, upload-time = "2026-04-16T12:53:04.486Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "fastmcp" },
+    { name = "numpy" },
+    { name = "openfisca-core" },
+    { name = "openfisca-japan" },
 ]
 
 [[package]]
@@ -845,13 +849,15 @@ dependencies = [
     { name = "mcp" },
     { name = "openai" },
     { name = "openfisca-japan-mcp" },
+    { name = "python-dotenv" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "mcp", specifier = ">=1.0.0" },
     { name = "openai", specifier = ">=1.30.0" },
-    { name = "openfisca-japan-mcp", specifier = "==0.2.4" },
+    { name = "openfisca-japan-mcp", editable = "vendor/OpenFisca-Japan-MCP" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
 
 [[package]]

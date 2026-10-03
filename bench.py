@@ -7,13 +7,16 @@ import asyncio
 import copy
 import json
 import os
+import re
 import sys
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from openfisca_japan_mcp.sdk import calc, get_tax_benefit_info
 
@@ -22,6 +25,10 @@ ROOT = Path(__file__).resolve().parent
 CASES_PATH = ROOT / "cases.json"
 RESULTS_DIR = ROOT / "results"
 MAX_TOOL_ROUNDS = 8
+load_dotenv(ROOT / ".env")
+YEN_AMOUNT_RE = re.compile(
+    r"(?:[0-9０-９][0-9０-９,，]*(?:\.[0-9０-９]+)?|[零〇一二三四五六七八九十百千万億兆]+)\s*(?:円|えん)"
+)
 
 
 def jsonable(value: Any) -> Any:
@@ -72,9 +79,6 @@ def oracle_value(case: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
 def mcp_content(result: Any) -> Any:
     """Prefer structured MCP output, otherwise parse text content when possible."""
     structured = getattr(result, "structured_content", None)
-    if structured is None:
-        # MCP Python SDK 1.x used the camelCase spelling.
-        structured = getattr(result, "structuredContent", None)
     if structured is not None:
         return jsonable(structured)
     parts = []
@@ -147,7 +151,10 @@ def normalized_households(households: Any) -> Any:
 def tool_specs(mcp_tools: list[Any]) -> list[dict[str, Any]]:
     specs = []
     for tool in mcp_tools:
-        schema = jsonable(getattr(tool, "inputSchema", {})) or {"type": "object", "properties": {}}
+        schema = getattr(tool, "input_schema", None)
+        if schema is None:
+            schema = getattr(tool, "inputSchema", {})
+        schema = jsonable(schema) or {"type": "object", "properties": {}}
         specs.append({
             "type": "function",
             "function": {
@@ -166,10 +173,13 @@ async def run_case(session: ClientSession, client: AsyncOpenAI, model: str,
         {
             "role": "system",
             "content": (
-                "あなたはOpenFisca-Japan-MCPを使って税・社会保障制度を計算するアシスタントです。"
-                "必ず最初にtax_benefit_infoで制度の入力属性と出力単位を確認し、"
-                "その後calculate_tax_benefitを使って計算してください。"
-                "ユーザーが示していない事実は推測せず、結果は日本語で簡潔に回答してください。"
+                "OpenFisca-Japan-MCPで制度を確認して計算するアシスタントです。"
+                "必ずtax_benefit_infoの後にcalculate_tax_benefitを呼んでください。"
+                "依頼文に必要情報は書かれているので、追加質問は禁止です。"
+                "依頼文に書かれた日付・全世帯・全員の情報を使い、未記載の属性は補わないでください。"
+                "学年は小学n年生=n、中学n年生=n+6、高校n年生=n+9です。"
+                "計算結果を得てから、空でない日本語の最終回答を返してください。"
+                "各世帯の金額はアラビア数字と円（例: 10,000円）で必ず示してください。"
             ),
         },
         {"role": "user", "content": case["prompt"]},
@@ -177,6 +187,7 @@ async def run_case(session: ClientSession, client: AsyncOpenAI, model: str,
     calls: list[dict[str, Any]] = []
     final_text = ""
     error = None
+    retries_without_calculation = 0
     try:
         for _ in range(MAX_TOOL_ROUNDS):
             response = await client.chat.completions.create(
@@ -190,6 +201,28 @@ async def run_case(session: ClientSession, client: AsyncOpenAI, model: str,
             if message.content:
                 final_text = message.content
             if not message.tool_calls:
+                has_info_call = any(
+                    call["name"] == "tax_benefit_info" and not call.get("is_error")
+                    for call in calls
+                )
+                has_calculation_call = any(
+                    call["name"] == "calculate_tax_benefit" and not call.get("is_error")
+                    for call in calls
+                )
+                if has_info_call and not has_calculation_call and retries_without_calculation < 2:
+                    retries_without_calculation += 1
+                    messages.append(message.model_dump(exclude_none=True))
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "まだ計算処理が終わっていません。追加質問は禁止です。"
+                            "calculate_tax_benefitを使ってください。"
+                            if retries_without_calculation == 1
+                            else "MCPで制度情報は取得済みです。空回答や質問は禁止です。"
+                                 "各世帯について、金額をアラビア数字と円で必ず回答してください。"
+                        ),
+                    })
+                    continue
                 break
             messages.append(message.model_dump(exclude_none=True))
             for tool_call in message.tool_calls:
@@ -198,7 +231,10 @@ async def run_case(session: ClientSession, client: AsyncOpenAI, model: str,
                     arguments = json.loads(tool_call.function.arguments or "{}")
                     result = await session.call_tool(name, arguments)
                     payload = mcp_content(result)
-                    is_error = bool(getattr(result, "isError", False))
+                    is_error = getattr(result, "is_error", None)
+                    if is_error is None:
+                        is_error = getattr(result, "isError", False)
+                    is_error = bool(is_error)
                     calls.append({"name": name, "arguments": arguments, "result": payload, "is_error": is_error})
                     tool_text = json.dumps(payload, ensure_ascii=False, default=str)
                     if is_error:
@@ -227,6 +263,8 @@ async def run_case(session: ClientSession, client: AsyncOpenAI, model: str,
         and c.get("arguments", {}).get("tax_benefit_name") == case["benefit"]
         for c in calls
     )
+    mcp_tool_used = any(c.get("name") and not c.get("is_error") for c in calls)
+    numeric_answer_present = bool(YEN_AMOUNT_RE.search(final_text))
     expected_households = normalized_households(case["household_list"])
     expected_outputs = [{"name": case["benefit"], "household_or_member": oracle_details["info"]["output_level"]}]
     input_match = any(
@@ -250,6 +288,9 @@ async def run_case(session: ClientSession, client: AsyncOpenAI, model: str,
         "input_match": input_match,
         "info_tool_used": info_used,
         "calculate_tool_used": bool(calculate_calls),
+        "mcp_tool_used": mcp_tool_used,
+        "numeric_answer_present": numeric_answer_present,
+        "tool_and_numeric_answer": mcp_tool_used and numeric_answer_present,
         "tool_calls": calls,
         "final_answer": final_text,
         "error": error,
@@ -267,10 +308,13 @@ async def run_benchmark(args: argparse.Namespace) -> int:
     base_url = args.base_url or os.environ.get("OPENAI_BASE_URL")
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
-    command = args.mcp_command or os.environ.get("MCP_COMMAND", "uv")
-    server_args = json.loads(args.mcp_args_json) if args.mcp_args_json else json.loads(os.environ.get(
-        "MCP_ARGS", json.dumps(["run", "--project", str(ROOT), "openfisca-japan-mcp"])))
-    params = StdioServerParameters(command=command, args=server_args, env=os.environ.copy())
+    params = StdioServerParameters(
+        command="uv",
+        args=[
+            "run", "--locked", "--project", str(ROOT), "python", "-X", "utf8", "-c",
+            "from openfisca_japan_mcp.cli import main; main()",
+        ],
+    )
     cases = load_cases()
     if args.case:
         cases = [case for case in cases if case["id"] in args.case]
@@ -299,30 +343,46 @@ async def run_benchmark(args: argparse.Namespace) -> int:
         "created_at": datetime.now(timezone.utc).isoformat(),
         "model": model,
         "base_url": base_url,
-        "mcp_command": command,
-        "mcp_args": server_args,
         "summary": {
             "cases": len(results),
             "result_matches": sum(r["result_match"] for r in results),
             "input_matches": sum(r["input_match"] for r in results),
             "info_tool_used": sum(r["info_tool_used"] for r in results),
             "calculate_tool_used": sum(r["calculate_tool_used"] for r in results),
+            "mcp_tool_used": sum(r["mcp_tool_used"] for r in results),
+            "numeric_answer_present": sum(r["numeric_answer_present"] for r in results),
+            "tool_and_numeric_answer": sum(r["tool_and_numeric_answer"] for r in results),
         },
         "results": results,
     }
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    for result in results:
+        calls = [call["name"] for call in result["tool_calls"]]
+        print(
+            f"{result['id']}: expected={result['expected']} actual={result['actual']} "
+            f"result_match={result['result_match']} input_match={result['input_match']} "
+            f"mcp_tool_used={result['mcp_tool_used']} "
+            f"numeric_answer_present={result['numeric_answer_present']} tools={calls}"
+        )
+        if result["final_answer"]:
+            print(f"  LLM answer: {result['final_answer']}")
+        if result["error"]:
+            print(f"  error: {result['error']}")
     print(json.dumps(report["summary"], ensure_ascii=False))
     print(f"Report: {output}")
     await client.close()
-    return 0 if all(r["result_match"] for r in results) else 1
+    return 0 if all(r["tool_and_numeric_answer"] for r in results) else 1
 
 
 def main() -> None:
+    if os.name == "nt" and sys.flags.utf8_mode != 1:
+        raise SystemExit(
+            "Windowsでは `python scripts/run_benchmark.py` から実行してください "
+            "（OpenFiscaのYAML読込にUTF-8モードが必要です）。"
+        )
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", help="Model name (or set OPENAI_MODEL)")
     parser.add_argument("--base-url", help="OpenAI-compatible API URL (or set OPENAI_BASE_URL)")
-    parser.add_argument("--mcp-command", help="MCP server executable; default: uvx")
-    parser.add_argument("--mcp-args-json", help="MCP server arguments as a JSON array")
     parser.add_argument("--case", action="append", help="Run only this case ID; may be repeated")
     args = parser.parse_args()
     try:
@@ -330,7 +390,7 @@ def main() -> None:
     except KeyboardInterrupt:
         raise SystemExit(130)
     except Exception as exc:
-        print(f"Benchmark failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        traceback.print_exception(exc, file=sys.stderr)
         raise SystemExit(2)
 
 

@@ -12,53 +12,27 @@
 - `calculate_tool_used`: `calculate_tax_benefit` を成功呼び出ししたか
 - `tool_calls` / `final_answer`: 引数、ツール結果、最終回答
 
-期待値生成もMCP実行も同じインストール済みOpenFisca-Japan-MCP/OpenFisca-Japanを使います。基準日を固定して再現性を保ちます。初期ケースは児童手当の3ケースです。制度ロジックの幅を広げる場合は `cases.json` にケースを追加してください。
+基準日と依存バージョンを固定します。通常実行は `uv.lock` のパッケージを使い、サブモジュール実行スクリプトは期待値生成・MCPサーバーの両方で同じ固定コミットのソースを使います。初期ケースは児童手当の3ケースです。制度ロジックの幅を広げる場合は `cases.json` にケースを追加してください。
 
 ## 必要環境
 
 - Python 3.11
 - `uv`
+- Git
 - OpenAI互換のチャット補完APIとツール呼び出しに対応したLLM
 
-```powershell
-uv sync --python 3.11
-$env:PYTHONUTF8 = "1"
-$env:OPENAI_API_KEY = "..."
-$env:OPENAI_MODEL = "モデル名"
-uv run python bench.py
+## MCPサブモジュールで実行
+
+`scripts/run_benchmark.py` はMCPサブモジュールのPythonソースを使い、`uv.lock` に従ってベンチマークを実行します。
+
+```sh
+python scripts/run_benchmark.py
 ```
 
-OpenAI互換APIのURLを使う場合：
+ルートに `.env` を作り、LLMの設定を書きます（`.env.example` を参照）。OSの環境変数が設定済みの場合はそちらを優先します。ケースを絞る場合は引数をそのまま渡します。
 
-```powershell
-$env:OPENAI_BASE_URL = "https://api.example.com/v1"
-uv run python bench.py --model "モデル名"
-```
-
-既定では `uv.lock` で依存バージョンをそろえるため、同じプロジェクト環境からMCPサーバーを別プロセスとして起動します。
-
-```text
-uv run --project <このフォルダ> openfisca-japan-mcp
-```
-
-別インストールのMCPサーバーを使う場合は、環境変数または `--mcp-args-json` で起動引数を指定できます。
-
-```powershell
-uv run python bench.py --mcp-command uvx --mcp-args-json '["--python","3.11","--from","C:\\path\\to\\OpenFisca-Japan-MCP","openfisca-japan-mcp"]'
-```
-
-シェル引数の扱いが難しい環境では環境変数でJSON配列を指定します。
-
-```powershell
-$env:MCP_COMMAND = "uvx"
-$env:MCP_ARGS = '["--python","3.11","--from","C:\\path\\to\\OpenFisca-Japan-MCP","openfisca-japan-mcp"]'
-uv run python bench.py
-```
-
-特定のケースだけ実行：
-
-```powershell
-uv run python bench.py --case child-allowance-one-child
+```sh
+python scripts/run_benchmark.py --case child-allowance-one-child
 ```
 
 ## 結果
