@@ -1,0 +1,66 @@
+[
+  {
+    "id": "child-allowance-one-child",
+    "benefit": "児童手当",
+    "date": "2025-01-01",
+    "prompt": "40歳の私と、小学3年生（8歳）の子どもの2人世帯です。2025年1月時点の児童手当の月額を教えてください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {"name": "親", "年齢": 40},
+          {"name": "子", "年齢": 8, "学年": 3}
+        ]
+      }
+    ],
+    "targets": [{"household_index": 0, "scope": "household", "name": "児童手当"}]
+  },
+  {
+    "id": "child-allowance-two-children",
+    "benefit": "児童手当",
+    "date": "2025-01-01",
+    "prompt": "夫婦と子ども2人（小学3年生・8歳と小学6年生・12歳）の4人家族です。2025年1月時点の児童手当の月額を計算してください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {"name": "父", "年齢": 40},
+          {"name": "母", "年齢": 38},
+          {"name": "子1", "年齢": 8, "学年": 3},
+          {"name": "子2", "年齢": 12, "学年": 6}
+        ]
+      }
+    ],
+    "targets": [{"household_index": 0, "scope": "household", "name": "児童手当"}]
+  },
+  {
+    "id": "child-allowance-two-households",
+    "benefit": "児童手当",
+    "date": "2025-01-01",
+    "prompt": "次の2世帯について、2025年1月時点の児童手当の月額をそれぞれ教えてください。A世帯は親（35歳）と子（2歳）、B世帯は親（45歳）と高校1年生（16歳）の子です。",
+    "household_list": [
+      {
+        "name": "A世帯",
+        "household_attribute": {},
+        "member_attribute": [
+          {"name": "親", "年齢": 35},
+          {"name": "子", "年齢": 2}
+        ]
+      },
+      {
+        "name": "B世帯",
+        "household_attribute": {},
+        "member_attribute": [
+          {"name": "親", "年齢": 45},
+          {"name": "子", "年齢": 16, "学年": 10}
+        ]
+      }
+    ],
+    "targets": [
+      {"household_index": 0, "scope": "household", "name": "児童手当"},
+      {"household_index": 1, "scope": "household", "name": "児童手当"}
+    ]
+  }
+]
