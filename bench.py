@@ -1,68 +1,181 @@
-"""Run an oracle-vs-MCP benchmark for OpenFisca-Japan-MCP."""
+"""Generate Harbor tasks from cases.json and run OpenCode with/without MCP.
+
+Single score: result_match (agent's answer.json vs OpenFisca SDK oracle).
+"""
 
 from __future__ import annotations
 
 import argparse
-import asyncio
 import copy
 import json
 import os
-import re
+import subprocess
 import sys
-import traceback
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
-from openfisca_japan_mcp.sdk import calc, get_tax_benefit_info
-
 
 ROOT = Path(__file__).resolve().parent
 CASES_PATH = ROOT / "cases.json"
-RESULTS_DIR = ROOT / "results"
-MAX_TOOL_ROUNDS = 8
-load_dotenv(ROOT / ".env")
-YEN_AMOUNT_RE = re.compile(
-    r"(?:[0-9０-９][0-9０-９,，]*(?:\.[0-9０-９]+)?|[零〇一二三四五六七八九十百千万億兆]+)\s*(?:円|えん)"
-)
+TASKS_DIR = ROOT / "harbor" / "datasets" / "openfisca-bench"
+
+TASK_TOML_TEMPLATE = """schema_version = "1.3"
+
+[task]
+name = "openfisca/{task_id}"
+description = "OpenFisca-Japan benefit amount QA (result_match only)"
+
+[agent]
+timeout_sec = 300.0
+
+[verifier]
+timeout_sec = 120.0
+
+[environment]
+build_timeout_sec = 900.0
+
+artifacts = ["/app/answer.json"]
+"""
+
+INSTRUCTION_TEMPLATE = """{prompt}
+
+回答は `/app/answer.json` にJSON配列で保存してください。依頼文で金額を聞かれた順番と同じ順番で記載します。
+各要素は金額の数値（例: `10000`）、または範囲を示すオブジェクトです。
+範囲の形式: `{{"min": 下限, "max": 上限}}`（端点を含む場合は `min_inclusive` / `max_inclusive` を `true`、
+含まない場合は `false`。省略時は含むものとします）。
+
+例（1世帯）: `[10000]`
+例（2世帯）: `[15000,10000]`
+例（範囲）: `[{{"min": 10000, "max": 15000}}]`
+
+利用可能なOpenFiscaツールがあれば制度確認と計算に使ってください。なければ依頼文から妥当な金額を推定して回答してください。
+追加質問はせず、必ず `answer.json` を作成してください。
+"""
+
+DOCKERFILE = """FROM python:3.11-slim
+WORKDIR /app
+RUN pip install --no-cache-dir openfisca-japan-mcp==0.2.4
+# Pre-install the agent toolchain so per-trial setup stays short.
+RUN apt-get update && apt-get install -y --no-install-recommends curl bash coreutils ca-certificates \\
+ && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \\
+ && apt-get install -y --no-install-recommends nodejs \\
+ && npm i -g opencode-ai \\
+ && rm -rf /var/lib/apt/lists/*
+"""
+
+TEST_SH = """#!/bin/bash
+set -uo pipefail
+if python3 /tests/check.py; then
+  echo 1 > /logs/verifier/reward.txt
+else
+  echo 0 > /logs/verifier/reward.txt
+fi
+"""
+
+CHECK_PY = '''"""Compare /app/answer.json against /tests/expected.json (result_match only)."""
+import json
+import sys
+from pathlib import Path
 
 
-def jsonable(value: Any) -> Any:
-    """Convert SDK/MCP values into JSON-compatible data."""
-    if hasattr(value, "model_dump"):
-        return jsonable(value.model_dump(mode="json"))
-    if isinstance(value, dict):
-        return {str(k): jsonable(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [jsonable(v) for v in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return str(value)
+def is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def load_cases() -> list[dict[str, Any]]:
-    with CASES_PATH.open(encoding="utf-8") as f:
-        return json.load(f)
+def element_match(actual, expected):
+    if is_number(expected):
+        if is_number(actual):
+            return float(actual) == float(expected)
+        if isinstance(actual, dict) and "min" in actual and "max" in actual:
+            # Single-point range counts as the scalar value.
+            return (
+                is_number(actual["min"])
+                and is_number(actual["max"])
+                and float(actual["min"]) == float(expected)
+                and float(actual["max"]) == float(expected)
+            )
+        return False
+    if isinstance(expected, dict) and "min" in expected and "max" in expected:
+        if not isinstance(actual, dict):
+            return False
+        for key in ("min", "max"):
+            if key not in actual or not is_number(actual[key]):
+                return False
+            if float(actual[key]) != float(expected[key]):
+                return False
+        for key in ("min_inclusive", "max_inclusive"):
+            if key in expected or key in actual:
+                if bool(actual.get(key, True)) != bool(expected.get(key, True)):
+                    return False
+        return True
+    return False
 
 
-def oracle_value(case: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
-    """Calculate expected result through the packaged OpenFisca SDK."""
+def main():
+    try:
+        expected = json.loads(Path("/tests/expected.json").read_text(encoding="utf-8"))["expected"]
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"cannot load expected.json: {exc}")
+        return 1
+    candidates = [Path("/app/answer.json"), Path("answer.json")]
+    actual_raw = None
+    for path in candidates:
+        if path.exists():
+            actual_raw = path.read_text(encoding="utf-8")
+            break
+    if actual_raw is None:
+        print("answer.json not found")
+        return 1
+    try:
+        actual = json.loads(actual_raw)
+    except ValueError as exc:
+        print(f"answer.json is not valid JSON: {exc}")
+        return 1
+    if not isinstance(actual, list) or not isinstance(expected, list):
+        print(f"both answer and expected must be arrays: actual={actual!r}")
+        return 1
+    if len(actual) != len(expected):
+        print(f"length mismatch: expected={expected!r} actual={actual!r}")
+        return 1
+    for index, (item, want) in enumerate(zip(actual, expected)):
+        if not element_match(item, want):
+            print(f"mismatch at index {index}: expected={want!r} actual={item!r}")
+            return 1
+    print(f"result_match=1 expected={expected!r} actual={actual!r}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+
+def load_cases(case_ids: list[str] | None) -> list[dict]:
+    cases = json.loads(CASES_PATH.read_text(encoding="utf-8"))
+    if case_ids:
+        wanted = set(case_ids)
+        cases = [c for c in cases if c["id"] in wanted]
+        missing = wanted - {c["id"] for c in cases}
+        if missing:
+            raise ValueError(f"Unknown case ID(s): {', '.join(sorted(missing))}")
+    return cases
+
+
+def oracle_values(case: dict) -> list:
+    from openfisca_japan_mcp.sdk import calc, get_tax_benefit_info
+
     info = get_tax_benefit_info(case["benefit"])
     if not info:
         raise ValueError(f"Unsupported benefit in case {case['id']}: {case['benefit']}")
-    households = copy.deepcopy(case["household_list"])
     result = calc(
-        households,
+        copy.deepcopy(case["household_list"]),
         [{"name": case["benefit"], "household_or_member": info["output_level"]}],
         case["date"],
     )
-    targets = case["targets"] if "targets" in case else [case["target"]]
     values = []
-    for target in targets:
+    for target in case["targets"]:
         household = result[target["household_index"]]
         if target["scope"] == "household":
             value = household.get("household_attribute", {}).get(target["name"])
@@ -71,327 +184,124 @@ def oracle_value(case: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
         else:
             raise ValueError(f"Unknown target scope: {target['scope']}")
         if value is None:
-            raise RuntimeError(f"Oracle did not produce {target['name']} for case {case['id']}")
-        values.append(jsonable(value))
-    return values, {"info": info, "calculated_households": jsonable(result)}
+            raise ValueError(f"Oracle did not produce {target['name']} for {case['id']}")
+        values.append(value)
+    return values
 
 
-def mcp_content(result: Any) -> Any:
-    """Prefer structured MCP output, otherwise parse text content when possible."""
-    structured = getattr(result, "structured_content", None)
-    if structured is not None:
-        return jsonable(structured)
-    parts = []
-    for item in getattr(result, "content", []) or []:
-        text = getattr(item, "text", None)
-        if text is not None:
-            try:
-                parts.append(json.loads(text))
-            except (json.JSONDecodeError, TypeError):
-                parts.append(text)
-    if len(parts) == 1:
-        return jsonable(parts[0])
-    return jsonable(parts)
-
-
-def extract_actual_value(value: Any, target: dict[str, Any]) -> Any:
-    """Find a calculated field inside the MCP tool's returned household list."""
-    # MCP SDKs/servers may wrap the result in a text block or an object.
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except json.JSONDecodeError:
-            return None
-    if isinstance(value, dict):
-        for key in ("result", "data", "structuredContent"):
-            if key in value:
-                found = extract_actual_value(value[key], target)
-                if found is not None:
-                    return found
-        if "household_attribute" in value or "member_attribute" in value:
-            value = [value]
-        else:
-            return None
-    if isinstance(value, list):
-        index = target["household_index"]
-        if index >= len(value) or not isinstance(value[index], dict):
-            return None
-        household = value[index]
-        if target["scope"] == "household":
-            return household.get("household_attribute", {}).get(target["name"])
-        members = household.get("member_attribute", [])
-        member_index = target["member_index"]
-        if member_index >= len(members):
-            return None
-        return members[member_index].get(target["name"])
-    return None
-
-
-def normalized_households(households: Any) -> Any:
-    """Compare the facts sent by the model, ignoring freely chosen display names."""
-    if not isinstance(households, list):
-        return None
-    normalized = []
-    for household in households:
-        if not isinstance(household, dict):
-            return None
-        members = household.get("member_attribute")
-        if not isinstance(members, list):
-            return None
-        normalized.append({
-            "household_attribute": household.get("household_attribute", {}),
-            "member_attribute": [
-                {key: value for key, value in member.items() if key != "name"}
-                for member in members
-            ],
-        })
-    return normalized
-
-
-def tool_specs(mcp_tools: list[Any]) -> list[dict[str, Any]]:
-    specs = []
-    for tool in mcp_tools:
-        schema = getattr(tool, "input_schema", None)
-        if schema is None:
-            schema = getattr(tool, "inputSchema", {})
-        schema = jsonable(schema) or {"type": "object", "properties": {}}
-        specs.append({
-            "type": "function",
-            "function": {
-                "name": tool.name,
-                "description": tool.description or "",
-                "parameters": schema,
-            },
-        })
-    return specs
-
-
-async def run_case(session: ClientSession, client: AsyncOpenAI, model: str,
-                   case: dict[str, Any], tools: list[dict[str, Any]],
-                   expected: list[Any], oracle_details: dict[str, Any]) -> dict[str, Any]:
-    messages: list[dict[str, Any]] = [
-        {
-            "role": "system",
-            "content": (
-                "OpenFisca-Japan-MCPで制度を確認して計算するアシスタントです。"
-                "必ずtax_benefit_infoの後にcalculate_tax_benefitを呼んでください。"
-                "依頼文に必要情報は書かれているので、追加質問は禁止です。"
-                "依頼文に書かれた日付・全世帯・全員の情報を使い、未記載の属性は補わないでください。"
-                "学年は小学n年生=n、中学n年生=n+6、高校n年生=n+9です。"
-                "計算結果を得てから、空でない日本語の最終回答を返してください。"
-                "各世帯の金額はアラビア数字と円（例: 10,000円）で必ず示してください。"
-            ),
-        },
-        {"role": "user", "content": case["prompt"]},
-    ]
-    calls: list[dict[str, Any]] = []
-    final_text = ""
-    error = None
-    retries_without_calculation = 0
+def write_task(case: dict, expected: list) -> Path:
+    dest = TASKS_DIR / case["id"]
+    (dest / "environment").mkdir(parents=True, exist_ok=True)
+    (dest / "solution").mkdir(parents=True, exist_ok=True)
+    (dest / "tests").mkdir(parents=True, exist_ok=True)
+    (dest / "task.toml").write_text(
+        TASK_TOML_TEMPLATE.format(task_id=case["id"]), encoding="utf-8"
+    )
+    (dest / "instruction.md").write_text(
+        INSTRUCTION_TEMPLATE.format(prompt=case["prompt"].strip()), encoding="utf-8"
+    )
+    (dest / "environment" / "Dockerfile").write_text(DOCKERFILE, encoding="utf-8")
+    (dest / "tests" / "expected.json").write_text(
+        json.dumps({"expected": expected}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    check = (dest / "tests" / "check.py")
+    check.write_text(CHECK_PY, encoding="utf-8")
+    test_sh = (dest / "tests" / "test.sh")
+    test_sh.write_text(TEST_SH, encoding="utf-8")
     try:
-        for _ in range(MAX_TOOL_ROUNDS):
-            response = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
-                temperature=0,
-            )
-            message = response.choices[0].message
-            if message.content:
-                final_text = message.content
-            if not message.tool_calls:
-                has_info_call = any(
-                    call["name"] == "tax_benefit_info" and not call.get("is_error")
-                    for call in calls
-                )
-                has_calculation_call = any(
-                    call["name"] == "calculate_tax_benefit" and not call.get("is_error")
-                    for call in calls
-                )
-                if has_info_call and not has_calculation_call and retries_without_calculation < 2:
-                    retries_without_calculation += 1
-                    messages.append(message.model_dump(exclude_none=True))
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "まだ計算処理が終わっていません。追加質問は禁止です。"
-                            "calculate_tax_benefitを使ってください。"
-                            if retries_without_calculation == 1
-                            else "MCPで制度情報は取得済みです。空回答や質問は禁止です。"
-                                 "各世帯について、金額をアラビア数字と円で必ず回答してください。"
-                        ),
-                    })
-                    continue
-                break
-            messages.append(message.model_dump(exclude_none=True))
-            for tool_call in message.tool_calls:
-                name = tool_call.function.name
-                try:
-                    arguments = json.loads(tool_call.function.arguments or "{}")
-                    result = await session.call_tool(name, arguments)
-                    payload = mcp_content(result)
-                    is_error = getattr(result, "is_error", None)
-                    if is_error is None:
-                        is_error = getattr(result, "isError", False)
-                    is_error = bool(is_error)
-                    calls.append({"name": name, "arguments": arguments, "result": payload, "is_error": is_error})
-                    tool_text = json.dumps(payload, ensure_ascii=False, default=str)
-                    if is_error:
-                        tool_text = "MCP tool returned an error: " + tool_text
-                except Exception as exc:  # preserve failed calls in the report
-                    calls.append({"name": name, "arguments": tool_call.function.arguments,
-                                  "error": f"{type(exc).__name__}: {exc}", "is_error": True})
-                    tool_text = f"MCP tool call failed: {type(exc).__name__}: {exc}"
-                messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": tool_text})
-        else:
-            error = f"Exceeded {MAX_TOOL_ROUNDS} model/tool rounds"
-    except Exception as exc:
-        error = f"{type(exc).__name__}: {exc}"
+        os.chmod(test_sh, 0o755)
+    except OSError:
+        pass
+    (dest / "solution" / "solve.sh").write_text(
+        "#!/bin/bash\nset -euo pipefail\ncat > answer.json <<'EOF'\n"
+        + json.dumps(expected, ensure_ascii=False)
+        + "\nEOF\n",
+        encoding="utf-8",
+    )
+    return dest
 
-    calculate_calls = [c for c in calls if c["name"] == "calculate_tax_benefit" and not c.get("is_error")]
-    targets = case["targets"] if "targets" in case else [case["target"]]
-    actual = [None] * len(targets)
-    for call in reversed(calculate_calls):
-        extracted = [extract_actual_value(call.get("result"), target) for target in targets]
-        actual = [new if new is not None else old for old, new in zip(actual, extracted)]
-        if all(value is not None for value in actual):
-            break
-    info_used = any(
-        c["name"] == "tax_benefit_info"
-        and not c.get("is_error")
-        and c.get("arguments", {}).get("tax_benefit_name") == case["benefit"]
-        for c in calls
-    )
-    mcp_tool_used = any(c.get("name") and not c.get("is_error") for c in calls)
-    numeric_answer_present = bool(YEN_AMOUNT_RE.search(final_text))
-    expected_households = normalized_households(case["household_list"])
-    expected_outputs = [{"name": case["benefit"], "household_or_member": oracle_details["info"]["output_level"]}]
-    input_match = any(
-        not call.get("is_error")
-        and normalized_households(call.get("arguments", {}).get("household_list")) == expected_households
-        and call.get("arguments", {}).get("output_tax_benefit_list") == expected_outputs
-        and call.get("arguments", {}).get("date") == case["date"]
-        for call in calculate_calls
-    )
-    matches = [a is not None and float(a) == float(e) for a, e in zip(actual, expected)]
-    result_matches = bool(matches) and all(matches)
+
+def generate(case_ids: list[str] | None) -> list[Path]:
+    paths = []
+    for case in load_cases(case_ids):
+        expected = oracle_values(case)
+        paths.append(write_task(case, expected))
+        print(f"generated {case['id']} expected={expected}")
+    return paths
+
+
+def job_config(condition: str, model: str,
+             case_ids: list[str] | None = None) -> dict:
+    agent: dict = {"name": "opencode", "model_name": model}
+    if condition == "with-mcp":
+        agent["mcp_servers"] = [
+            {
+                "name": "openfisca",
+                "transport": "stdio",
+                "command": "openfisca-japan-mcp",
+                "args": [],
+            }
+        ]
+    dataset: dict = {"path": str(TASKS_DIR)}
+    if case_ids:
+        dataset["task_names"] = list(case_ids)
     return {
-        "id": case["id"],
-        "benefit": case["benefit"],
-        "date": case["date"],
-        "prompt": case["prompt"],
-        "expected": expected,
-        "actual": jsonable(actual),
-        "target_matches": matches,
-        "result_match": result_matches,
-        "input_match": input_match,
-        "info_tool_used": info_used,
-        "calculate_tool_used": bool(calculate_calls),
-        "mcp_tool_used": mcp_tool_used,
-        "numeric_answer_present": numeric_answer_present,
-        "tool_and_numeric_answer": mcp_tool_used and numeric_answer_present,
-        "tool_calls": calls,
-        "final_answer": final_text,
-        "error": error,
-        "oracle": oracle_details,
+        "job_name": f"openfisca-{condition}",
+        "datasets": [dataset],
+        "agents": [agent],
+        "environment": {"type": "docker"},
+        "n_attempts": 1,
+        # opencode setup (npm install inside the container) can exceed the default.
+        "agent_setup_timeout_multiplier": 3.0,
     }
-
-
-async def run_benchmark(args: argparse.Namespace) -> int:
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("Set OPENAI_API_KEY before running the benchmark")
-    model = args.model or os.environ.get("OPENAI_MODEL")
-    if not model:
-        raise RuntimeError("Set OPENAI_MODEL or pass --model")
-    base_url = args.base_url or os.environ.get("OPENAI_BASE_URL")
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-
-    params = StdioServerParameters(
-        command="uv",
-        args=[
-            "run", "--locked", "--project", str(ROOT), "python", "-X", "utf8", "-c",
-            "from openfisca_japan_mcp.cli import main; main()",
-        ],
-    )
-    cases = load_cases()
-    if args.case:
-        cases = [case for case in cases if case["id"] in args.case]
-        if not cases:
-            raise ValueError("No cases matched --case")
-
-    results = []
-    async with stdio_client(params) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            listed = await session.list_tools()
-            tool_map = {tool.name: tool for tool in listed.tools}
-            required = {"tax_benefit_info", "calculate_tax_benefit"}
-            if not required.issubset(tool_map):
-                raise RuntimeError(f"MCP server missing tools: {sorted(required - tool_map.keys())}")
-            schemas = tool_specs(listed.tools)
-            for case in cases:
-                expected, details = oracle_value(case)
-                print(f"Running {case['id']} (expected={expected})", flush=True)
-                results.append(await run_case(session, client, model, case, schemas, expected, details))
-
-    RESULTS_DIR.mkdir(exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    output = RESULTS_DIR / f"{stamp}.json"
-    report = {
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "model": model,
-        "base_url": base_url,
-        "summary": {
-            "cases": len(results),
-            "result_matches": sum(r["result_match"] for r in results),
-            "input_matches": sum(r["input_match"] for r in results),
-            "info_tool_used": sum(r["info_tool_used"] for r in results),
-            "calculate_tool_used": sum(r["calculate_tool_used"] for r in results),
-            "mcp_tool_used": sum(r["mcp_tool_used"] for r in results),
-            "numeric_answer_present": sum(r["numeric_answer_present"] for r in results),
-            "tool_and_numeric_answer": sum(r["tool_and_numeric_answer"] for r in results),
-        },
-        "results": results,
-    }
-    output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    for result in results:
-        calls = [call["name"] for call in result["tool_calls"]]
-        print(
-            f"{result['id']}: expected={result['expected']} actual={result['actual']} "
-            f"result_match={result['result_match']} input_match={result['input_match']} "
-            f"mcp_tool_used={result['mcp_tool_used']} "
-            f"numeric_answer_present={result['numeric_answer_present']} tools={calls}"
-        )
-        if result["final_answer"]:
-            print(f"  LLM answer: {result['final_answer']}")
-        if result["error"]:
-            print(f"  error: {result['error']}")
-    print(json.dumps(report["summary"], ensure_ascii=False))
-    print(f"Report: {output}")
-    await client.close()
-    return 0 if all(r["tool_and_numeric_answer"] for r in results) else 1
 
 
 def main() -> None:
-    if os.name == "nt" and sys.flags.utf8_mode != 1:
-        raise SystemExit(
-            "Windowsでは `python scripts/run_benchmark.py` から実行してください "
-            "（OpenFiscaのYAML読込にUTF-8モードが必要です）。"
-        )
+    load_dotenv(ROOT / ".env")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", help="Model name (or set OPENAI_MODEL)")
-    parser.add_argument("--base-url", help="OpenAI-compatible API URL (or set OPENAI_BASE_URL)")
-    parser.add_argument("--case", action="append", help="Run only this case ID; may be repeated")
+    parser.add_argument("--condition", choices=["both", "with-mcp", "without-mcp"], default="both")
+    parser.add_argument("--model", default=os.getenv("OPENCODE_MODEL", "opencode/muse-spark-1.3-contributor-free"))
+    parser.add_argument("--case", action="append", help="Generate/run only this case ID")
+    parser.add_argument("--generate-only", action="store_true")
+    parser.add_argument("--jobs-dir", default="jobs")
+    parser.add_argument("harbor_args", nargs=argparse.REMAINDER, help="Extra args after --")
     args = parser.parse_args()
-    try:
-        raise SystemExit(asyncio.run(run_benchmark(args)))
-    except KeyboardInterrupt:
-        raise SystemExit(130)
-    except Exception as exc:
-        traceback.print_exception(exc, file=sys.stderr)
-        raise SystemExit(2)
+
+    generate(args.case)
+    if args.generate_only:
+        return
+
+    conditions = ["without-mcp", "with-mcp"] if args.condition == "both" else [args.condition]
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    returncode = 0
+    for condition in conditions:
+        config = job_config(condition, args.model, args.case)
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False,
+                                         encoding="utf-8") as handle:
+            json.dump(config, handle, ensure_ascii=False, indent=2)
+            config_path = handle.name
+        cmd = ["harbor", "run", "--config", config_path,
+               "--jobs-dir", args.jobs_dir, "--job-name", f"{stamp}-{condition}",
+               *args.harbor_args]
+        print(f"+ {' '.join(cmd)}")
+        env = os.environ.copy()
+        # Harbor on Windows: force UTF-8 file reads and quiet progress output.
+        env.setdefault("PYTHONUTF8", "1")
+        env.setdefault("NO_COLOR", "1")
+        env.setdefault("TERM", "dumb")
+        if ("-q" not in args.harbor_args and "--quiet" not in args.harbor_args
+                and "--silent" not in args.harbor_args):
+            cmd.append("-q")
+        try:
+            result = subprocess.run(cmd, cwd=ROOT, check=False, env=env)
+            returncode = result.returncode or returncode
+        finally:
+            try:
+                os.unlink(config_path)
+            except OSError:
+                pass
+    raise SystemExit(returncode)
 
 
 if __name__ == "__main__":
