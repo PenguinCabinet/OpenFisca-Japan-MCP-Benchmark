@@ -9,12 +9,25 @@
         "name": "世帯1",
         "household_attribute": {},
         "member_attribute": [
-          {"name": "親", "年齢": 40},
-          {"name": "子", "年齢": 8, "学年": 3}
+          {
+            "name": "親",
+            "年齢": 40
+          },
+          {
+            "name": "子",
+            "年齢": 8,
+            "学年": 3
+          }
         ]
       }
     ],
-    "targets": [{"household_index": 0, "scope": "household", "name": "児童手当"}]
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "household",
+        "name": "児童手当"
+      }
+    ]
   },
   {
     "id": "child-allowance-two-children",
@@ -26,14 +39,34 @@
         "name": "世帯1",
         "household_attribute": {},
         "member_attribute": [
-          {"name": "父", "年齢": 40},
-          {"name": "母", "年齢": 38},
-          {"name": "子1", "年齢": 8, "学年": 3},
-          {"name": "子2", "年齢": 12, "学年": 6}
+          {
+            "name": "父",
+            "年齢": 40
+          },
+          {
+            "name": "母",
+            "年齢": 38
+          },
+          {
+            "name": "子1",
+            "年齢": 8,
+            "学年": 3
+          },
+          {
+            "name": "子2",
+            "年齢": 12,
+            "学年": 6
+          }
         ]
       }
     ],
-    "targets": [{"household_index": 0, "scope": "household", "name": "児童手当"}]
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "household",
+        "name": "児童手当"
+      }
+    ]
   },
   {
     "id": "child-allowance-two-households",
@@ -45,22 +78,576 @@
         "name": "A世帯",
         "household_attribute": {},
         "member_attribute": [
-          {"name": "親", "年齢": 35},
-          {"name": "子", "年齢": 2}
+          {
+            "name": "親",
+            "年齢": 35
+          },
+          {
+            "name": "子",
+            "年齢": 2
+          }
         ]
       },
       {
         "name": "B世帯",
         "household_attribute": {},
         "member_attribute": [
-          {"name": "親", "年齢": 45},
-          {"name": "子", "年齢": 16, "学年": 10}
+          {
+            "name": "親",
+            "年齢": 45
+          },
+          {
+            "name": "子",
+            "年齢": 16,
+            "学年": 10
+          }
         ]
       }
     ],
     "targets": [
-      {"household_index": 0, "scope": "household", "name": "児童手当"},
-      {"household_index": 1, "scope": "household", "name": "児童手当"}
+      {
+        "household_index": 0,
+        "scope": "household",
+        "name": "児童手当"
+      },
+      {
+        "household_index": 1,
+        "scope": "household",
+        "name": "児童手当"
+      }
+    ]
+  },
+  {
+    "id": "child-allowance-junior-high",
+    "benefit": "児童手当",
+    "date": "2025-01-01",
+    "prompt": "38歳の私と、中学2年生（14歳）の子どもの2人世帯です。2025年1月時点の児童手当の月額を教えてください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "親",
+            "年齢": 38
+          },
+          {
+            "name": "子",
+            "年齢": 14,
+            "学年": 8
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "household",
+        "name": "児童手当"
+      }
+    ]
+  },
+  {
+    "id": "child-allowance-high-school",
+    "benefit": "児童手当",
+    "date": "2025-01-01",
+    "prompt": "45歳の親と、高校2年生（17歳）の子の2人世帯です。2025年1月時点の児童手当の月額はいくらですか。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "親",
+            "年齢": 45
+          },
+          {
+            "name": "子",
+            "年齢": 17,
+            "学年": 11
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "household",
+        "name": "児童手当"
+      }
+    ]
+  },
+  {
+    "id": "child-allowance-age-boundary",
+    "benefit": "児童手当",
+    "date": "2025-01-01",
+    "prompt": "50歳の親と、高校3年生（18歳）の子の2人世帯です。2025年1月時点の児童手当の月額を教えてください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "親",
+            "年齢": 50
+          },
+          {
+            "name": "子",
+            "年齢": 18,
+            "学年": 12
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "household",
+        "name": "児童手当"
+      }
+    ]
+  },
+  {
+    "id": "child-allowance-three-children",
+    "benefit": "児童手当",
+    "date": "2025-01-01",
+    "prompt": "父（40歳）、母（38歳）、3歳の子、小学4年生（10歳）の子、中学1年生（13歳）の子の5人家族です。2025年1月時点の児童手当の月額を計算してください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "父",
+            "年齢": 40
+          },
+          {
+            "name": "母",
+            "年齢": 38
+          },
+          {
+            "name": "子1",
+            "年齢": 3
+          },
+          {
+            "name": "子2",
+            "年齢": 10,
+            "学年": 4
+          },
+          {
+            "name": "子3",
+            "年齢": 13,
+            "学年": 7
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "household",
+        "name": "児童手当"
+      }
+    ]
+  },
+  {
+    "id": "child-allowance-adult-child",
+    "benefit": "児童手当",
+    "date": "2025-01-01",
+    "prompt": "55歳の親と、大学生（20歳）の子の2人世帯です。2025年1月時点の児童手当の月額を教えてください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "親",
+            "年齢": 55
+          },
+          {
+            "name": "子",
+            "年齢": 20
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "household",
+        "name": "児童手当"
+      }
+    ]
+  },
+  {
+    "id": "child-allowance-preschool",
+    "benefit": "児童手当",
+    "date": "2025-01-01",
+    "prompt": "32歳の親と、2歳の子と5歳の子の3人世帯です。2025年1月時点の児童手当の月額はいくらですか。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "親",
+            "年齢": 32
+          },
+          {
+            "name": "子1",
+            "年齢": 2
+          },
+          {
+            "name": "子2",
+            "年齢": 5
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "household",
+        "name": "児童手当"
+      }
+    ]
+  },
+  {
+    "id": "child-allowance-grade-boundary",
+    "benefit": "児童手当",
+    "date": "2025-04-01",
+    "prompt": "42歳の親と、中学3年生（15歳）の子の2人世帯です。2025年4月時点の児童手当の月額を教えてください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "親",
+            "年齢": 42
+          },
+          {
+            "name": "子",
+            "年齢": 15,
+            "学年": 9
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "household",
+        "name": "児童手当"
+      }
+    ]
+  },
+  {
+    "id": "resident-tax-single",
+    "benefit": "住民税",
+    "date": "2025-01-01",
+    "prompt": "35歳の会社員で年収500万円です。2025年1月時点の住民税の年額を教えてください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "本人",
+            "年齢": 35,
+            "年収": 5000000,
+            "個人事業主の必要経費": 0
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "member",
+        "member_index": 0,
+        "name": "住民税"
+      }
+    ]
+  },
+  {
+    "id": "resident-tax-with-bonus",
+    "benefit": "住民税",
+    "date": "2025-01-01",
+    "prompt": "40歳の会社員で、基本給が年450万円、賞与が夏と冬に50万円ずつ出ます。2025年1月時点の住民税の年額を計算してください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "本人",
+            "年齢": 40,
+            "年収": 5500000,
+            "個人事業主の必要経費": 0
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "member",
+        "member_index": 0,
+        "name": "住民税"
+      }
+    ]
+  },
+  {
+    "id": "resident-tax-couple",
+    "benefit": "住民税",
+    "date": "2025-01-01",
+    "prompt": "夫（42歳、年収600万円）と妻（39歳、年収350万円）の2人世帯です。2025年1月時点の住民税の年額をそれぞれ教えてください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "夫",
+            "年齢": 42,
+            "年収": 6000000,
+            "個人事業主の必要経費": 0
+          },
+          {
+            "name": "妻",
+            "年齢": 39,
+            "年収": 3500000,
+            "個人事業主の必要経費": 0
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "member",
+        "member_index": 0,
+        "name": "住民税"
+      },
+      {
+        "household_index": 0,
+        "scope": "member",
+        "member_index": 1,
+        "name": "住民税"
+      }
+    ]
+  },
+  {
+    "id": "resident-tax-self-employed",
+    "benefit": "住民税",
+    "date": "2025-01-01",
+    "prompt": "45歳の個人事業主で、売上700万円、必要経費250万円です。2025年1月時点の住民税の年額を教えてください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "本人",
+            "年齢": 45,
+            "年収": 7000000,
+            "個人事業主の必要経費": 2500000
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "member",
+        "member_index": 0,
+        "name": "住民税"
+      }
+    ]
+  },
+  {
+    "id": "resident-tax-disabled",
+    "benefit": "住民税",
+    "date": "2025-01-01",
+    "prompt": "50歳の会社員で年収400万円、身体障害者手帳2級を持っています。2025年1月時点の住民税の年額を計算してください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "本人",
+            "年齢": 50,
+            "年収": 4000000,
+            "個人事業主の必要経費": 0,
+            "身体障害者手帳等級": "二級"
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "member",
+        "member_index": 0,
+        "name": "住民税"
+      }
+    ]
+  },
+  {
+    "id": "income-tax-student",
+    "benefit": "所得税",
+    "date": "2025-01-01",
+    "prompt": "20歳の大学生で、アルバイトの年収が130万円です。2025年1月時点の所得税の年額を教えてください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "本人",
+            "年齢": 20,
+            "年収": 1300000,
+            "個人事業主の必要経費": 0,
+            "学生": true
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "member",
+        "member_index": 0,
+        "name": "所得税"
+      }
+    ]
+  },
+  {
+    "id": "income-tax-elderly",
+    "benefit": "所得税",
+    "date": "2025-01-01",
+    "prompt": "72歳で年金収入が年320万円です。2025年1月時点の所得税の年額を計算してください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "本人",
+            "年齢": 72,
+            "年収": 3200000,
+            "個人事業主の必要経費": 0
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "member",
+        "member_index": 0,
+        "name": "所得税"
+      }
+    ]
+  },
+  {
+    "id": "social-insurance-parttime",
+    "benefit": "社会保険料",
+    "date": "2025-01-01",
+    "prompt": "30歳のパートで週15時間勤務、年収110万円です。2025年1月時点の社会保険料の年額を教えてください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {},
+        "member_attribute": [
+          {
+            "name": "本人",
+            "年齢": 30,
+            "年収": 1100000,
+            "個人事業主の必要経費": 0,
+            "週労働時間20時間以上": false
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "member",
+        "member_index": 0,
+        "name": "社会保険料"
+      }
+    ]
+  },
+  {
+    "id": "welfare-tokyo",
+    "benefit": "生活保護",
+    "date": "2025-01-01",
+    "prompt": "東京都千代田区に住む35歳の親と2歳の子の2人世帯で、収入がありません。2025年1月時点の生活保護の月額を教えてください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {
+          "居住都道府県": "東京都",
+          "居住市区町村": "千代田区"
+        },
+        "member_attribute": [
+          {
+            "name": "親",
+            "年齢": 35,
+            "年収": 0
+          },
+          {
+            "name": "子",
+            "年齢": 2,
+            "年収": 0
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "household",
+        "name": "生活保護"
+      }
+    ]
+  },
+  {
+    "id": "welfare-with-condition",
+    "benefit": "生活保護",
+    "date": "2025-01-01",
+    "prompt": "東京都世田谷区に住む父（40歳、年収180万円）と母（35歳、妊娠7か月）の2人世帯です。2025年1月時点の生活保護の月額を計算してください。",
+    "household_list": [
+      {
+        "name": "世帯1",
+        "household_attribute": {
+          "居住都道府県": "東京都",
+          "居住市区町村": "世田谷区"
+        },
+        "member_attribute": [
+          {
+            "name": "父",
+            "年齢": 40,
+            "年収": 1800000
+          },
+          {
+            "name": "母",
+            "年齢": 35,
+            "年収": 0,
+            "妊産婦": "妊娠6ヵ月以上"
+          }
+        ]
+      }
+    ],
+    "targets": [
+      {
+        "household_index": 0,
+        "scope": "household",
+        "name": "生活保護"
+      }
     ]
   }
 ]
