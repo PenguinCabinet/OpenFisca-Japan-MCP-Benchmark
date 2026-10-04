@@ -190,8 +190,13 @@ def main() -> None:
             summary[f"{condition}/{case['id']}"] = match
             print(f"{condition}/{case['id']}: expected={expected} actual={actual} match={match}",
                   flush=True)
+    by_condition = {}
+    for condition in conditions:
+        keys = [k for k in summary if k.startswith(condition + "/")]
+        by_condition[condition] = f"{sum(summary[k] for k in keys)}/{len(keys)}"
     print(json.dumps({"model": args.model, "cases": len(summary),
-                      "result_match": f"{sum(summary.values())}/{len(summary)}"},
+                      "result_match": f"{sum(summary.values())}/{len(summary)}",
+                      "by_condition": by_condition},
                      ensure_ascii=False))
     raise SystemExit(0 if all(summary.values()) else 1)
 
