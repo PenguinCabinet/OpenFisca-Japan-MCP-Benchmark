@@ -1,0 +1,21 @@
+without-mcp/child-allowance-one-child: expected={'世帯1': 10000} actual={'世帯1': 10000} match=True
+without-mcp/child-allowance-two-children: expected={'世帯1': 20000} actual={'世帯1': 20000} match=True
+without-mcp/child-allowance-two-households: expected={'A世帯': 15000, 'B世帯': 10000} actual={'A世帯': 15000, 'B世帯': 10000} match=True
+without-mcp/child-allowance-junior-high: expected={'世帯1': 10000} actual={'世帯1': 10000} match=True
+without-mcp/child-allowance-high-school: expected={'世帯1': 10000} actual={'世帯1': 10000} match=True
+without-mcp/child-allowance-age-boundary: expected={'世帯1': 10000} actual={'世帯1': 10000} match=True
+without-mcp/child-allowance-three-children: expected={'世帯1': 50000} actual={'世帯1': 50000} match=True
+without-mcp/child-allowance-adult-child: expected={'世帯1': 0} actual={'世帯1': 0} match=True
+without-mcp/child-allowance-preschool: expected={'世帯1': 15000} actual={'世帯1': 25000} match=False
+without-mcp/child-allowance-grade-boundary: expected={'世帯1': 10000} actual={'世帯1': 10000} match=True
+without-mcp/resident-tax-single: expected={'本人': 223488} actual={'本人': 244500} match=False
+without-mcp/resident-tax-with-bonus: expected={'本人': 251738} actual={'本人': 272750} match=False
+without-mcp/resident-tax-couple: expected={'夫': 281488, '妻': 126538} actual={'夫': 305000, '妻': 147550} match=False
+without-mcp/resident-tax-self-employed: expected={'本人': 412000} actual={'本人': 409500} match=False
+without-mcp/resident-tax-disabled: expected={'本人': 117488} actual={'本人': 117488} match=True
+without-mcp/income-tax-student: expected={'本人': 0} actual={'本人': 0} match=True
+without-mcp/income-tax-elderly: expected={'本人': 30603} actual={'本人': 81000} match=False
+without-mcp/social-insurance-parttime: expected={'本人': 6050} actual={'本人': 0} match=False
+without-mcp/welfare-tokyo: expected={'世帯1': 203074} actual={'世帯1': 153840} match=False
+without-mcp/welfare-with-condition: expected={'世帯1': 83759} actual={'世帯1': 83759.234375} match=False
+{"model": "openai/gpt-6-astra", "cases": 20, "result_match": "11/20", "by_condition": {"without-mcp": "11/20"}}
