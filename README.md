@@ -27,7 +27,7 @@
 python scripts/run_benchmark.py --condition both --model openai/gpt-6-sol 
 ```
 - `--condition both|with-mcp|without-mcp`（既定 `both`）
-- `--model`（既定は `.env` の `OPENCODE_MODEL`、なければ `openai/gpt-5.6-luna`）
+- `--model`（既定は `openai/gpt-5.6-luna`）
 - `--case ID` でケース絞り込み（複数指定可）
 
 
