@@ -19,13 +19,32 @@ ROOT = Path(__file__).resolve().parent
 CASES_PATH = ROOT / "cases.json"
 CASE_TIMEOUT_SEC = 600
 
-ANSWER_INSTRUCTION = """
-回答は `answer.json` にJSON配列で保存してください。依頼文で金額を聞かれた順番と同じ順番で記載します。
-各要素は金額の数値（例: `10000`）、または範囲を示すオブジェクトです。
-範囲の形式: `{"min": 下限, "max": 上限}`（端点を含む場合は `min_inclusive` / `max_inclusive` を `true`、
-含まない場合は `false`。省略時は含むものとします）。
+ANSWER_INSTRUCTION_TEMPLATE = """
+回答は `answer.json` にJSONオブジェクトで保存してください。キーは {keys} を使ってください。
+各金額は数値で記載してください（例: `{{"世帯1": 10000}}`）。
 追加質問はせず、必ず `answer.json` を作成してください。
 """
+
+
+def target_keys(case: dict) -> list[str]:
+    """Readable key per target from the case's own household/member names."""
+    keys = []
+    for target in case["targets"]:
+        household = case["household_list"][target["household_index"]]
+        if target["scope"] == "household":
+            keys.append(household["name"])
+        else:
+            keys.append(household["member_attribute"][target["member_index"]]["name"])
+    counts: dict[str, int] = {}
+    for key in keys:
+        counts[key] = counts.get(key, 0) + 1
+    unique = []
+    for key, target in zip(keys, case["targets"]):
+        if counts[key] > 1:
+            household = case["household_list"][target["household_index"]]
+            key = f"{household['name']}/{key}"
+        unique.append(key)
+    return unique
 
 
 def find_opencode_cli() -> Path:
@@ -65,37 +84,15 @@ def is_number(value) -> bool:
 
 
 def element_match(actual, expected) -> bool:
-    if is_number(expected):
-        if is_number(actual):
-            return float(actual) == float(expected)
-        if isinstance(actual, dict) and "min" in actual and "max" in actual:
-            return (
-                is_number(actual["min"]) and is_number(actual["max"])
-                and float(actual["min"]) == float(expected)
-                and float(actual["max"]) == float(expected)
-            )
-        return False
-    if isinstance(expected, dict) and "min" in expected and "max" in expected:
-        if not isinstance(actual, dict):
-            return False
-        for key in ("min", "max"):
-            if key not in actual or not is_number(actual[key]):
-                return False
-            if float(actual[key]) != float(expected[key]):
-                return False
-        for key in ("min_inclusive", "max_inclusive"):
-            if key in expected or key in actual:
-                if bool(actual.get(key, True)) != bool(expected.get(key, True)):
-                    return False
-        return True
-    return False
+    return (is_number(actual) and is_number(expected)
+            and float(actual) == float(expected))
 
 
 def values_match(actual, expected) -> bool:
     return (
-        isinstance(actual, list) and isinstance(expected, list)
-        and len(actual) == len(expected)
-        and all(element_match(a, e) for a, e in zip(actual, expected))
+        isinstance(actual, dict) and isinstance(expected, dict)
+        and set(actual) == set(expected)
+        and all(element_match(actual[k], expected[k]) for k in expected)
     )
 
 
@@ -110,7 +107,7 @@ def load_cases(case_ids: list[str] | None) -> list[dict]:
     return cases
 
 
-def oracle_values(case: dict) -> list:
+def oracle_values(case: dict) -> dict:
     info = get_tax_benefit_info(case["benefit"])
     if not info:
         raise ValueError(f"Unsupported benefit in case {case['id']}: {case['benefit']}")
@@ -119,8 +116,8 @@ def oracle_values(case: dict) -> list:
         [{"name": case["benefit"], "household_or_member": info["output_level"]}],
         case["date"],
     )
-    values = []
-    for target in case["targets"]:
+    values = {}
+    for key, target in zip(target_keys(case), case["targets"]):
         household = result[target["household_index"]]
         if target["scope"] == "household":
             value = household.get("household_attribute", {}).get(target["name"])
@@ -130,11 +127,11 @@ def oracle_values(case: dict) -> list:
             raise ValueError(f"Unknown target scope: {target['scope']}")
         if value is None:
             raise ValueError(f"Oracle did not produce {target['name']} for {case['id']}")
-        values.append(value)
+        values[key] = value
     return values
 
 
-def run_trial(cli: Path, workdir: Path, model: str, prompt: str, with_mcp: bool) -> None:
+def run_trial(cli: Path, workdir: Path, model: str, case: dict, with_mcp: bool) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
     config: dict = {"$schema": "https://opencode.ai/config.json", "model": model}
     if with_mcp:
@@ -152,9 +149,13 @@ def run_trial(cli: Path, workdir: Path, model: str, prompt: str, with_mcp: bool)
     (workdir / "opencode.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
     env = os.environ.copy()
     env.setdefault("PYTHONUTF8", "1")
+    keys = target_keys(case)
+    prompt = (
+        case["prompt"].strip()
+        + ANSWER_INSTRUCTION_TEMPLATE.format(keys=", ".join(f'"{k}"' for k in keys))
+    )
     proc = subprocess.run(
-        [str(cli), "run", "--model", model, "--format", "json", "--auto",
-         prompt + ANSWER_INSTRUCTION],
+        [str(cli), "run", "--model", model, "--format", "json", "--auto", prompt],
         cwd=workdir, env=env, capture_output=True, text=True, encoding="utf-8",
         timeout=CASE_TIMEOUT_SEC,
     )
@@ -181,7 +182,7 @@ def main() -> None:
             expected = oracle_values(case)
             workdir = ROOT / "host-runs" / stamp / condition / case["id"]
             try:
-                run_trial(cli, workdir, args.model, case["prompt"].strip(), condition == "with-mcp")
+                run_trial(cli, workdir, args.model, case, condition == "with-mcp")
                 actual = json.loads((workdir / "answer.json").read_text(encoding="utf-8"))
                 match = values_match(actual, expected)
             except Exception as exc:

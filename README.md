@@ -1,21 +1,33 @@
 # OpenFisca-Japan-MCP benchmark
 
-ホストのopencodeでモデルを実行し、MCPあり／なしでpenFisca-Japanの計算結果と一致するかを測ります。
+[OpenFisca-Japan-MCP](https://github.com/project-inclusive/OpenFisca-Japan-MCP)の使用有無で、推論に差が出るか検証するベンチマークです。
 
-## スコア
+また安価なモデルでOpenFisca-Japan-MCPを正しく使えるかの検証も兼ねています。
 
-唯一のスコアは `result_match` です。各ケースでエージェントが書いた `answer.json` が、
-固定バージョンのOpenFisca SDKから作った期待値と完全一致すれば1です。
-MCP使用有無、ツール呼び出し履歴、回答文面は採点しません。
+## スコア表
 
-期待値・回答値の各要素は数値、または範囲オブジェクトです。
+|モデル名|MCP使用の有無|正答数|正答率|
+|---|---|---|
+|openai/gpt-6-luna|No|9|45%|
+|openai/gpt-6-luna|Yes|20|100%|
 
-```json
-{"min": 10000, "max": 15000, "min_inclusive": true, "max_inclusive": false}
+## 検証方法
+1. 入力パラメータを事前に作成する(ベンチ対象LLMから独立したLLMを使用)
+2. 対応する相談文を事前に作成する(ベンチ対象LLMから独立したLLMを使用)
+3. 相談文を入力し、OpenCodeで数値を推論してもらう(MCPの使用ありなしの2パターンを試す)
+4. 入力パラメータでOpenFiscaを実行し、実際の数値を取得する(これならば、数値から直接OpenFisca推論で実行されるので正しい値になる)
+5. 3,4を比較し完全一致なら正解。それ以外は不正解とする
+
+![詳しいベンチマークのログはこちら](./bench_history)
+
+## 実行方法
 ```
+python scripts/run_benchmark.py --condition both --model openai/gpt-6-sol 
+```
+- `--condition both|with-mcp|without-mcp`（既定 `both`）
+- `--model`（既定は `.env` の `OPENCODE_MODEL`、なければ `openai/gpt-5.6-luna`）
+- `--case ID` でケース絞り込み（複数指定可）
 
-範囲同士は両端の値と端点の含み方が一致したら一致とします。
-単点の範囲（`min == max`）はその数値と等しいものとして扱います。単位は無視します。
 
 ## 必要環境
 
@@ -24,20 +36,6 @@ MCP使用有無、ツール呼び出し履歴、回答文面は採点しませ�
 
 CLIの探索順は `OPENCODE_CLI` 環境変数 → PATH上のv2 → デスクトップ同梱版の最新です。
 PATHの編集は不要です。
-
-## 実行
-
-```sh
-cp .env.example .env   # OPENCODE_MODEL を設定
-python scripts/run_benchmark.py --condition both
-```
-
-- `--condition both|with-mcp|without-mcp`（既定 `both`）
-- `--model`（既定は `.env` の `OPENCODE_MODEL`、なければ `openai/gpt-5.6-luna`）
-- `--case ID` でケース絞り込み（複数指定可）
-
-`with-mcp` ではOpenFisca MCPサーバーをstdioで接続し、`without-mcp` では接続しません。
-実行記録は `host-runs/<timestamp>/` に保存されます。
 
 ## ケース追加
 
