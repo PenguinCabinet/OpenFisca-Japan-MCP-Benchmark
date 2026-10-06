@@ -8,9 +8,9 @@
 
 |モデル名|MCP使用の有無|正答数|正答率|
 |---|---|---|---|
-|openai/gpt-6-astra|No|11|55%|
-|openai/gpt-6-sol|Yes|20|100%|
-|openai/gpt-6-luna|Yes|20|100%|
+|gpt-6-astra|No|11|55%|
+|gpt-6-sol|Yes|20|100%|
+|gpt-6-luna|Yes|20|100%|
 
 [詳しいベンチマークのログはこちら](./bench_history)
 
