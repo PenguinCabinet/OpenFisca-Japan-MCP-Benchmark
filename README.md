@@ -13,8 +13,10 @@
 |モデル名|MCP使用の有無|正答数|正答率|
 |---|---|---|---|
 |gpt-6-astra|No|11|55%|
+|muse-spark-1.3-contributor-free|No|10|50%|
 |gpt-6-sol|Yes|20|100%|
 |gpt-6-luna|Yes|20|100%|
+|muse-spark-1.3-contributor-free|Yes|19|95%|
 
 [詳しいベンチマークのログはこちら](./bench_history)
 
