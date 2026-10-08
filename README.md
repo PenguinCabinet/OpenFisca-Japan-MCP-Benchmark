@@ -2,7 +2,7 @@
 > 本リポジトリは開発中であり、テストデータの品質は保証できません。     
 > ハーネスのログで、MCPをカンニングをしていないことを確認できたモデルのみ記載しています。MCPをカンニングできてしまうバグは修正予定です。     
 
-# OpenFisca-Japan-MCP benchmark
+# OpenFisca-Japan-MCP Benchmark
 
 [OpenFisca-Japan-MCP](https://github.com/project-inclusive/OpenFisca-Japan-MCP)の使用有無で、推論に差が出るか検証するベンチマークです。
 
