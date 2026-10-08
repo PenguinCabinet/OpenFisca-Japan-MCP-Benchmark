@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from openfisca_japan_mcp.sdk import calc, get_tax_benefit_info
 ROOT = Path(__file__).resolve().parent
 CASES_PATH = ROOT / "cases.json"
 CASE_TIMEOUT_SEC = 600
+RUNS_ROOT = Path(tempfile.gettempdir()) / "obench-runs"
 
 ANSWER_INSTRUCTION_TEMPLATE = """
 回答は `answer.json` にJSONオブジェクトで保存してください。キーは {keys} を使ってください。
@@ -146,6 +148,13 @@ def run_trial(cli: Path, workdir: Path, model: str, case: dict, with_mcp: bool) 
                 }
             }
         }
+    # Isolation: deny repo access. Shell must stay allowed: denying it trips
+    # the free-tier gate ("can only be used from within OpenCode").
+    repo = str(ROOT).replace("\\", "/") + "/*"
+    config["permissions"] = [
+        {"action": "read", "resource": repo, "effect": "deny"},
+        {"action": "edit", "resource": repo, "effect": "deny"},
+    ]
     (workdir / "opencode.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
     env = os.environ.copy()
     env.setdefault("PYTHONUTF8", "1")
@@ -180,7 +189,7 @@ def main() -> None:
     for condition in conditions:
         for case in load_cases(args.case):
             expected = oracle_values(case)
-            workdir = ROOT / "host-runs" / stamp / condition / case["id"]
+            workdir = RUNS_ROOT / stamp / condition / case["id"]
             try:
                 run_trial(cli, workdir, args.model, case, condition == "with-mcp")
                 actual = json.loads((workdir / "answer.json").read_text(encoding="utf-8"))
